@@ -3,51 +3,68 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JSONLint Offline PWA</title>
+  <title>OFFJSON</title>
   <link rel="manifest" href="manifest.json">
+  <!-- ==========================================================================
+       GLOBAL & LAYOUT STYLES
+       ========================================================================== -->
   <style>
-    /* Mobile-first base styles */
-    * {
-      box-sizing: border-box;
+    /* Reset box model for consistency */
+    * { box-sizing: border-box; }
+
+    #app {
+      visibility: hidden;
     }
+    #app.ready {
+      visibility: visible;
+    }
+
+    /* Basic body styling */
     body {
       font-family: Arial, sans-serif;
       margin: 1rem;
       background: #f5f7fa;
       color: #333;
     }
+
+    /* Header styling */
     h1 {
       text-align: center;
       margin-bottom: 1rem;
     }
+
+    /* Container for top bar (title + fullscreen button) */
     .top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1rem;
     }
+
+    /* Tab button styling */
     .tabs {
       display: flex;
     }
-    /* Default (non-active) tabs */
     .tabs button {
       background: #e1e4e8;
       color: #333;
       border: 1px solid #ddd;
       margin-right: 0.5rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
     }
-    /* Hover state */
     .tabs button:hover {
       background: #007ACC;
       color: #fff;
       border-color: #007ACC;
     }
-    /* Active tab */
     .tabs button.active {
       background: #007ACC;
       color: #fff;
       border-color: #007ACC;
     }
+
+    /* Tab content panels */
     .tab-content {
       display: none;
       background: #fff;
@@ -58,16 +75,33 @@
     .tab-content.active {
       display: block;
     }
-    textarea {
+    
+    input[readonly] {
+      background-color: #f0f0f0;
+      color: #888;
+    }
+
+    /* Shared form element styles */
+    textarea, input[type="text"] {
       width: 100%;
-      min-height: 200px;
       font-family: monospace;
       font-size: 1rem;
       padding: 0.5rem;
       border: 1px solid #ccc;
       border-radius: 4px;
+    }
+    textarea {
+      min-height: 200px;
       resize: vertical;
     }
+
+    .button-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.5rem;
+    }
+
+    /* Primary button styles */
     button {
       background: #007ACC;
       color: #fff;
@@ -81,212 +115,1469 @@
     button:hover {
       background: #005fa3;
     }
-    #result {
+    button:disabled,
+    button.disabled-btn {
+      background: #ccc !important;
+      color: #666 !important;
+      cursor: not-allowed;
+      border-color: #aaa !important;
+    }
+
+    /* Output area */
+    #result, #output {
       margin-top: 1rem;
       white-space: pre-wrap;
       font-family: monospace;
     }
 
-    /* Builder styles */
+    /* Builder node styles */
     .node {
       border: 1px solid #ddd;
       padding: 0.75rem;
       margin-bottom: 0.75rem;
       border-radius: 4px;
       background: #fdfdfd;
+      position: relative;
     }
-    .children {
-      margin-left: 1rem;
+    .type-indicator {
+      position: absolute;
+      top: -0.8px;    /* move up */
+      right: 6px;
+      font-size: 0.65rem;
+      color: #888;
     }
     .controls {
       margin-top: 0.5rem;
+      display: grid;
+      /* autant de colonnes que ça rentre, chacune au moins 100px, et qui partagent l’espace restant */
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 0.5rem; /* espace entre les boutons */
     }
+    
     .controls button {
       background: #e1e4e8;
       color: #333;
-      margin-right: 0.5rem;
+      /* plus de margin-right, on gère l’espace via gap */
+      margin: 0;
+      padding: 0.25rem 0.5rem;
+      width: 100%; /* chaque bouton prend toute la largeur de sa “cellule” */
     }
-    input[type="text"] {
-      padding: 0.5rem;
-      margin-right: 0.5rem;
-      margin-bottom: 0.5rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      width: 100%;
+    .controls button.add-child:not(:disabled),
+    .controls button.add-array:not(:disabled) {
+      background: #003366 !important;
+      color: white !important;
+    }
+    
+    .controls button.add-child:disabled,
+    .controls button.add-array:disabled {
+      background: #EEE !important;
+      color: white !important;
+      cursor: not-allowed;
+    }
+    
+    .controls button.add-child:disabled:hover,
+    .controls button.add-array:disabled:hover {
+      background: #CCC !important;
+    }
+    
+    .import-builder-btn {
+      background: #28a745;
+    }
+    .import-builder-btn:hover {
+      background: #218838;
     }
 
-    /* Responsive tweaks */
-    @media (min-width: 600px) {
-      body {
-        margin: 2rem auto;
-        max-width: 800px;
-      }
-      input[type="text"] {
-        width: 100%;
+    #lint.tab-content.active {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 200px);
+    }
+    
+    #json-input {
+      flex: 1;
+      resize: none;
+      min-height: 0; /* nécessaire pour que flex fonctionne bien */
+      margin-bottom: 0.5rem;
+      overflow: auto;
+    }
+    
+    #lint .button-group:last-of-type {
+      margin-top: auto;
+    }
+    
+    /* Fullscreen padding */
+    html:fullscreen,
+    html:-webkit-full-screen {
+      padding: 1rem;              /* inset on all four sides */
+      box-sizing: border-box;     /* ensure padding is included in width/height */
+    }
+    
+    /* ==========================================================================
+       LOADER STYLES
+       ========================================================================== */
+
+    /* Loader (full-screen spinner) */
+    #loader {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(255,255,255,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    #loader.hidden {
+      display: none;
+    }
+    .spinner {
+      width: 50px; height: 50px;
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #007ACC;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ==========================================================================
+       TOAST NOTIFICATION STYLES
+       ========================================================================== */
+    #toast-container {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 2000;
+    }
+    .toast {
+      min-width: 200px;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      color: #fff;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: slideIn 0.3s forwards, fadeOut 0.3s 2.7s forwards;
+    }
+    .toast-success { background: #28a745; }
+    .toast-error   { background: #dc3545; }
+    .toast-info    { background: #abb5b2; }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to   { opacity: 0; }
+    }
+
+    /* -------------------------
+       SHARED MODAL CONTAINER
+       ------------------------- */
+    .modal {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      /* Semi-transparent dark overlay with subtle gradient */
+      background: rgba(0, 0, 0, 0.4);
+      /* Enable backdrop blur for modern browsers */
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      opacity: 1;
+      transform: scale(1);
+      pointer-events: all;
+      transition: none;
+    }
+    
+    .modal.hidden {
+      display: none !important;
+    }
+    
+    /* -------------------------
+       MODAL CONTENT BOX
+       ------------------------- */
+    .modal-content {
+      background: #ffffff;
+      border-radius: 0.75rem;               /* More rounded corners */
+      padding: 1rem 2rem;
+      max-width: 400px;                     /* Limit width */
+      width: 90%;                           /* Responsive */
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); /* Softer, larger shadow */
+      text-align: center;
+      line-height: 1.5;                     /* More breathing space for text */
+      transition: transform 0.25s ease-out;
+    }
+    .modal.visible .modal-content {
+      transform: translateY(0);
+    }
+    
+    /* -------------------------
+       MODAL TEXT & BUTTONS
+       ------------------------- */
+    .modal-content p {
+      margin: 0.5 0 1.5rem;
+      font-size: 1rem;
+      color: #333333;
+      font-weight: 300;                     /* Lighter font weight */
+    }
+    
+    .modal-content button {
+      background: none;
+      border: 2px solid #007ACC;
+      color: #007ACC;
+      border-radius: 0.5rem;
+      padding: 0.5rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 500;
+      margin: 0 0.5rem;
+      transition: background 0.2s, color 0.2s;
+    }
+    .modal-content button:hover {
+      background: #007ACC;
+      color: #ffffff;
+    }
+    
+  </style>
+  <script>
+    // ==========================================================================
+    // IndexedDB Persistence Helpers
+    // ==========================================================================
+
+    const DB_NAME    = 'json-offline-db';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'userData';
+
+    /**
+     * Open (or create) the IndexedDB database and object store.
+     * @returns {Promise<IDBDatabase>}
+     */
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          // Create a simple key/value store
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME);
+          }
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror   = (e) => reject(e.target.error);
+      });
+    }
+
+    /**
+     * Save a value under a given key in IndexedDB.
+     * @param {string} key
+     * @param {any} value
+     * @returns {Promise<void>}
+     */
+    async function saveToDB(key, value) {
+	    const db = await openDatabase();
+	    return new Promise((resolve, reject) => {
+		    const tx = db.transaction(STORE_NAME, 'readwrite');
+		    const store = tx.objectStore(STORE_NAME);
+		    store.put(value, key);
+		    tx.oncomplete = () => resolve();
+		    tx.onerror    = () => reject(tx.error);
+	    });
+    }
+
+    async function loadFromDB(key) {
+      const db = await openDatabase();
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      return new Promise((res, rej) => {
+        const r = tx.objectStore(STORE_NAME).get(key);
+        r.onsuccess = () => res(r.result);
+        r.onerror   = () => rej(r.error);
+      });
+    }
+  </script>
+<script defer>
+  document.addEventListener('DOMContentLoaded', async () => {
+    // 1) Try localStorage first
+    let saved = localStorage.getItem('activeTab');
+
+    // 2) If nothing in localStorage, fall back to IndexedDB
+    if (!saved) {
+      try {
+        saved = await loadFromDB('activeTab');
+      } catch {
+        saved = null;
       }
     }
-  </style>
+
+    // 3) Default to 'lint' tab if still no value
+    if (!saved) {
+      saved = 'lint';
+    }
+
+    // 4) Remove all 'active' classes from tab buttons and panels
+    document.querySelectorAll('.tabs button, .tab-content')
+      .forEach(el => el.classList.remove('active'));
+
+    // 5) Activate the corresponding tab button and panel
+    const btn  = document.querySelector(`.tabs button[data-target="${saved}"]`);
+    const pane = document.getElementById(saved);
+    if (btn && pane) {
+      btn.classList.add('active');
+      pane.classList.add('active');
+    }
+
+    // 6) Show the main interface
+    document.getElementById('app').classList.add('ready');
+
+    // —— Load saved content on startup —— 
+
+    // A) Lint panel input
+    try {
+      const lintText = await loadFromDB('lintInput');
+      if (lintText) {
+        document.getElementById('json-input').value = lintText;
+      }
+    } catch {
+      // no previous lint input saved
+    }
+
+    // B) Builder panel output
+    try {
+      const builderText = await loadFromDB('builderOutput');
+      if (builderText) {
+        const outputEl = document.getElementById('output');
+        const root     = document.getElementById('root');
+        outputEl.value = builderText;
+        // import into the builder UI
+        const data = JSON.parse(builderText);
+        root.innerHTML = '';
+        importObject(data);
+      }
+    } catch {
+      // no previous builder output saved, or invalid JSON
+    }
+
+    // —— Add “Add Child Object” / “Add Array Element” buttons above the workspace ——
+
+    const addChildTop = document.getElementById('addChildTop');
+    if (addChildTop) {
+      addChildTop.addEventListener('click', () => {
+        const root = document.getElementById('root');
+        const nodes = Array.from(root.children);
+        // create the new parent object
+        const parent = createNode('', '', 0);
+        // bump all existing nodes down one level
+        nodes.forEach(n => {
+          n.dataset.depth = +n.dataset.depth + 1;
+          n.style.marginLeft = `${+n.dataset.depth * 20}px`;
+        });
+        // reassemble under the new parent
+        root.innerHTML = '';
+        root.appendChild(parent);
+        nodes.forEach(n => root.appendChild(n));
+        updateOutput();
+        showSuccess('Wrapped workspace in an object');
+      });
+    }
+
+const addArrayTop = document.getElementById('addArrayTop');
+if (addArrayTop) {
+  addArrayTop.addEventListener('click', () => {
+    const root     = document.getElementById('root');
+    const outputEl = document.getElementById('output');
+    let currentData;
+
+    // 1) Parse whatever is in the output textarea
+    try {
+      currentData = outputEl.value.trim()
+	? JSON.parse(outputEl.value)
+	: {};
+    } catch (e) {
+      showError('Cannot wrap in array: invalid JSON');
+      return;
+    }
+
+    // 2) Wrap it in an array
+    const wrapped = [ currentData ];
+
+    // 3) Rebuild the builder UI from scratch
+    root.innerHTML = '';
+    importObject(wrapped);
+
+    // 4) Refresh the textarea & persistence
+    updateOutput();
+    showSuccess('Wrapped workspace in an array');
+  });
+}
+
+    // 7) Initialize the builder workspace if still empty
+    const builderPanel = document.getElementById('builder');
+    const root         = document.getElementById('root');
+    if (builderPanel && root && root.children.length === 0) {
+      root.appendChild(createNode());
+      updateOutput();
+    }
+  });
+</script>
+
 </head>
 <body>
-  <div class="top-bar">
-    <h1>JSONLint Offline PWA</h1>
-    <button id="fullscreenBtn">⛶ Fullscreen</button>
-  </div>
-
-  <div class="tabs">
-    <button class="active" data-target="lint">Lint</button>
-    <button data-target="builder">Builder</button>
-  </div>
-
-  <!-- Lint Tab -->
-  <div id="lint" class="tab-content active">
-    <textarea id="json-input" placeholder="Paste your JSON here..."></textarea><br>
-    <button id="validate-btn">Validate</button>
-    <div id="result"></div>
-  </div>
-
-  <!-- Builder Tab -->
-  <div id="builder" class="tab-content">
-    <div id="root" class="node"></div>
-    <div style="margin-bottom: 1rem;">
-      <button id="exportBtn">Export JSON</button>
-      <button id="copyBtn">Copy JSON</button>
+  <div id="app">
+    <!-- Full-screen loader indicator -->
+    <div id="loader" class="hidden"><div class="spinner"></div></div>
+    
+    <!-- Container for toast messages -->
+    <div id="toast-container"></div>
+  
+    <!-- Top toolbar -->
+    <div class="top-bar">
+      <h1>JSON Offline PWA</h1>
+        <button id="fullscreenBtn">⛶ Fullscreen</button>
     </div>
-    <textarea id="output" readonly placeholder="Generated JSON will appear here..."></textarea>
+  
+    <!-- Navigation tabs -->
+    <div class="tabs">
+        <button data-target="lint" class="active">Lint</button>
+        <button data-target="builder">Builder</button>
+    </div>
+  
+    <!-- Lint panel -->
+    <div id="lint" class="tab-content active">
+      <div style="margin-bottom: 0.5rem;">
+        <div class="button-group">
+          <button id="importLintBtn">Import File</button>
+          <button id="pasteBtn">Paste</button>
+        </div>
+        <input type="file" id="lintFileInput" style="display:none">
+      </div>
+      <textarea id="json-input" placeholder="Paste your JSON here..."></textarea><br>
+      <div class="button-group">
+        <button id="validate-btn" class="import-builder-btn">Validate</button>
+        <button id="clear-lint-btn">Clear</button>
+      </div>
+      <div id="result"></div>
+    </div>
+  
+    <!-- Builder panel -->
+    <div id="builder" class="tab-content">
+      <div style="margin-bottom: 1rem;">
+        <label>
+          <input type="checkbox" id="objectOnlyToggle">
+          Object-Only Mode <i>(transparently convert arrays into objects)</i>
+        </label>
+      </div>
+      <div class="button-group" style="margin-bottom:1rem;">
+	      <button id="addChildTop" class="add-child">Add Child Object</button>
+	      <button id="addArrayTop" class="add-array">Add Array Element</button>
+      </div>
+      <div id="root"></div>
+      <div style="margin-bottom: 1rem;">
+        <div class="button-group">
+          <button id="importBtn" class="import-builder-btn">Import into Builder</button>
+          <button id="pasteBuilderBtn">Paste JSON</button>
+          <button id="importFileBtn">Import File</button>
+          <input type="file" id="fileInput" style="display:none">
+          <button id="copyBtn">Copy JSON</button>
+          <button id="clear-builder-btn">Clear</button>
+        </div>
+      </div>
+      <textarea id="output" placeholder="Live JSON output..."></textarea>
+    </div>
+  
+    <!-- Confirmation modal for clearing builder -->
+    <div id="clearModal" class="modal hidden">
+      <div class="modal-content">
+        <p>Do you want to clear the workspace as well?</p>
+        <div class="button-group">
+          <button id="yes">Yes</button>
+          <button id="no">No</button>
+          <button id="cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Confirmation modal for Object-Only toggle -->
+    <div id="objectOnlyModal" class="modal hidden">
+      <div class="modal-content">
+        <p>Enabling Object-Only Mode will regenerate the JSON output without arrays, replacing the current content. Do you wish to continue?</p>
+        <div class="button-group">
+          <button id="objectOnlyYes">Yes</button>
+          <button id="objectOnlyNo">No</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Confirmation modal for key overwrite -->
+    <div id="convertModal" class="modal hidden">
+      <div class="modal-content">
+        <p>This operation will overwrite the keys of this object. Continue?</p>
+        <div class="button-group">
+          <button id="convertYes">Yes</button>
+          <button id="convertNo">No</button>
+        </div>
+      </div>
+    </div>
+  
+    <!-- Lint paste confirmation -->
+    <div id="lintPasteModal" class="modal hidden">
+      <div class="modal-content">
+        <p>Pasting will replace existing JSON. Continue?</p>
+        <div class="button-group">
+          <button id="lintPasteYes">Yes</button>
+          <button id="lintPasteNo">No</button>
+          <button id="lintPasteCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Builder paste confirmation -->
+    <div id="builderPasteModal" class="modal hidden">
+      <div class="modal-content">
+        <p>Pasting will replace existing JSON. Continue?</p>
+        <div class="button-group">
+          <button id="builderPasteYes">Yes</button>
+          <button id="builderPasteNo">No</button>
+          <button id="builderPasteCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
-
   <script>
-    // Fullscreen toggle
-    const fullscreenBtn = document.getElementById('fullscreenBtn');
-    fullscreenBtn.addEventListener('click', () => {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
-        fullscreenBtn.textContent = '🡽 Exit Fullscreen';
-      } else {
-        document.exitFullscreen();
-        fullscreenBtn.textContent = '⛶ Fullscreen';
-      }
-    });
+    // ==========================================================================
+    // Toast Notification Helpers
+    // ==========================================================================
 
-    // Tab navigation
-    document.querySelectorAll('.tabs button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.target).classList.add('active');
-      });
-    });
-
-    // JSONLint logic
-    document.getElementById('validate-btn').addEventListener('click', () => {
-      const input = document.getElementById('json-input').value;
-      const resultEl = document.getElementById('result');
-      try {
-        const parsed = JSON.parse(input);
-        resultEl.textContent = '✅ Valid JSON!\n' + JSON.stringify(parsed, null, 2);
-        resultEl.style.color = 'green';
-      } catch (err) {
-        resultEl.textContent = '❌ Error: ' + err.message;
-        resultEl.style.color = 'red';
-      }
-    });
-
-    // JSON Builder logic
-    function createNode(container) {
-      const node = document.createElement('div');
-      node.className = 'node';
-
-      const keyInput = document.createElement('input');
-      keyInput.placeholder = 'Key';
-      keyInput.type = 'text';
-
-      const valInput = document.createElement('textarea');
-      valInput.placeholder = 'Value';
-
-      const controls = document.createElement('div');
-      controls.className = 'controls';
-
-      let childContainer = null;
-
-      const addChildBtn = document.createElement('button');
-      addChildBtn.textContent = 'Add Child';
-      addChildBtn.onclick = () => {
-        if (!childContainer) {
-          childContainer = document.createElement('div');
-          childContainer.className = 'children';
-          node.appendChild(childContainer);
-          valInput.style.display = 'none';
-          const observer = new MutationObserver(() => {
-            if (childContainer.children.length === 0) {
-              observer.disconnect();
-              childContainer.remove();
-              childContainer = null;
-              valInput.style.display = '';
-            }
-          });
-          observer.observe(childContainer, { childList: true });
-        }
-        createNode(childContainer);
-      };
-
-      const removeBtn = document.createElement('button');
-      removeBtn.textContent = 'Remove';
-      removeBtn.onclick = () => node.remove();
-
-      controls.append(addChildBtn, removeBtn);
-      node.append(keyInput, valInput, controls);
-      container.appendChild(node);
+    /**
+     * Display a toast notification with the specified message and style.
+     * @param {string} message - The text content of the toast.
+     * @param {('success'|'error'|'info')} type - The visual style of the toast.
+     */
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => container.removeChild(toast), 5000);
     }
 
-    window.addEventListener('load', () => {
-      createNode(document.getElementById('root'));
+    // Convenience wrappers for different toast types
+    function showSuccess(msg) { showToast(msg, 'success'); }
+    function showError(msg)   { showToast(msg, 'error');   }
+    function showInfo(msg)    { showToast(msg, 'info');    }
+
+    // ==========================================================================
+    // Loader Control Functions
+    // ==========================================================================
+
+    const loader = document.getElementById('loader');
+
+    /** Show the full-screen loader overlay */
+    function showLoader() { loader.classList.remove('hidden'); }
+
+    /** Hide the full-screen loader overlay */
+    function hideLoader() { loader.classList.add('hidden'); }
+
+    // ==========================================================================
+    // Paste Functions
+    // ==========================================================================
+
+    //
+    // 1) Generic paste logic
+    //
+    async function doPaste(targetId, successMsg) {
+      showLoader();
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById(targetId).value = text;
+        showSuccess(successMsg);
+      } catch (err) {
+        console.error('Unable to paste from clipboard:', err);
+        showError('Cannot paste on this browser; please paste manually.');
+      } finally {
+        hideLoader();
+      }
+    }
+    
+    //
+    // 2) Function to open a modal
+    //
+    function openModal(modalId) {
+      document.getElementById(modalId).classList.remove('hidden');
+    }
+    
+    //
+    // 3) Setup paste flows
+    //
+    function setupPasteFlow({ 
+      pasteButtonId,
+      modalId,
+      yesButtonId,
+      noButtonId,
+      cancelButtonId,
+      targetId,
+      successMessage
+    }) {
+      document.getElementById(pasteButtonId).addEventListener('click', () => {
+
+        if (!navigator.clipboard?.readText) {
+          showError('Clipboard API not supported on this browser; please paste manually.');
+          return;
+        }
+        
+        const existing = document.getElementById(targetId).value.trim();
+        if (!existing || existing === '{}') {
+          // if empty, paste immediately
+          doPaste(targetId, successMessage);
+        } else {
+          // otherwise ask for confirmation
+          openModal(modalId);
+        }
+      });
+      document.getElementById(yesButtonId).addEventListener('click', () => {
+        doPaste(targetId, successMessage);
+        document.getElementById(modalId).classList.add('hidden');
+      });
+      [noButtonId, cancelButtonId].forEach(id => {
+        document.getElementById(id).addEventListener('click', () => {
+          document.getElementById(modalId).classList.add('hidden');
+        });
+      });
+    }
+    
+    // Hook up the two flows:
+    setupPasteFlow({
+      pasteButtonId:    'pasteBtn',
+      modalId:          'lintPasteModal',
+      yesButtonId:      'lintPasteYes',
+      noButtonId:       'lintPasteNo',
+      cancelButtonId:   'lintPasteCancel',
+      targetId:         'json-input',
+      successMessage:   'Pasted into Lint'
+    });
+    setupPasteFlow({
+      pasteButtonId:    'pasteBuilderBtn',
+      modalId:          'builderPasteModal',
+      yesButtonId:      'builderPasteYes',
+      noButtonId:       'builderPasteNo',
+      cancelButtonId:   'builderPasteCancel',
+      targetId:         'output',
+      successMessage:   'Pasted into Builder'
     });
 
-    function traverse(container) {
-      const obj = {};
-      // Iterate over each direct child node element
-      [...container.children].forEach(node => {
-        // Get the key input and the value textarea
-        const keyInput = node.querySelector('input[type="text"]');
-        const valueTextarea = node.querySelector('textarea');
-        const key = keyInput.value.trim();
-        // Skip nodes without a key
-        if (!key) return;
-    
-        // Check if this node has a children container
-        const childContainer = node.querySelector('.children');
-        // If there are child nodes, recurse; otherwise use the textarea value
-        obj[key] = childContainer
-          ? traverse(childContainer)
-          : valueTextarea.value;
+    // ==========================================================================
+    // Global State
+    // ==========================================================================
+
+    let objectOnlyMode = false;  // Toggle for object-only output (no arrays)
+
+    // ==========================================================================
+    // Initialization on DOM Ready
+    // ==========================================================================
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Setup toggle for Object-Only mode
+      const toggle = document.getElementById('objectOnlyToggle');
+      // Intercept the checkbox toggle to ask for confirmation first
+      toggle.addEventListener('change', (e) => {
+          e.preventDefault();
+          const content = document.getElementById('output').value.trim();
+          const isEmpty = content === '' || content === '{}' || content === '[]';
+        
+          if (isEmpty) {
+            objectOnlyMode = !objectOnlyMode;
+            toggle.checked = objectOnlyMode;
+            showSuccess('Object-Only Mode ' + (objectOnlyMode ? 'activated' : 'deactivated'));
+          } else {
+            // Show confirmation modal
+            document.getElementById('objectOnlyModal').classList.remove('hidden');
+          }
       });
+    });
+
+    // ==========================================================================
+    // Fullscreen Toggle Logic
+    // ==========================================================================
+
+    document.getElementById('fullscreenBtn').addEventListener('click', () => {
+      const btn = document.getElementById('fullscreenBtn');
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+        btn.textContent = '🡽 Exit Fullscreen';
+        showSuccess('Entered fullscreen mode');
+      } else {
+        document.exitFullscreen();
+        btn.textContent = '⛶ Fullscreen';
+        showSuccess('Exited fullscreen mode');
+      }
+    });
+
+    // ==========================================================================
+    // Tab Navigation Logic
+    // ==========================================================================
+
+    const container = document.querySelector('.tabs');
+    const panels    = document.querySelectorAll('.tab-content');
+    
+    container.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-target]');
+      if (!btn) return;
+    
+      // Toggle classes
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+    
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.target).classList.add('active');
+    
+      // Persist
+      localStorage.setItem('activeTab', btn.dataset.target);
+      saveToDB('activeTab', btn.dataset.target).catch(console.error);
+    });
+
+    // ==========================================================================
+    // JSON Linting (Validation) Handlers
+    // ==========================================================================
+
+    document.getElementById('validate-btn').addEventListener('click', () => {
+      showLoader();
+      setTimeout(() => {
+        const input     = document.getElementById('json-input').value;
+        const resultEl  = document.getElementById('result');
+        try {
+          const parsed = JSON.parse(input);
+          resultEl.textContent = '✅ Valid JSON!\n' + JSON.stringify(parsed, null, 2);
+          resultEl.style.color = 'green';
+          showSuccess('JSON is valid');
+        } catch (err) {
+          resultEl.textContent = '❌ ' + err.message;
+          resultEl.style.color = 'red';
+          showError('Invalid JSON: ' + err.message);
+        }
+        hideLoader();
+      }, 50);
+    });
+
+    // File import into Lint panel
+    document.getElementById('importLintBtn').addEventListener('click', () => {
+      document.getElementById('lintFileInput').click();
+    });
+    document.getElementById('lintFileInput').addEventListener('change', () => {
+      const file = document.getElementById('lintFileInput').files[0];
+      if (!file) return;
+      showLoader();
+      const reader = new FileReader();
+      reader.onload = () => {
+        document.getElementById('json-input').value = reader.result;
+        hideLoader();
+        showSuccess('File imported into Lint');
+      };
+      reader.readAsText(file);
+    });
+
+    // Clear Lint panel
+    document.getElementById('clear-lint-btn').addEventListener('click', () => {
+      document.getElementById('json-input').value = '';
+      document.getElementById('result').textContent = '';
+      showSuccess('Lint cleared');
+    });
+
+    // ==========================================================================
+    // Builder Utility Functions
+    // ==========================================================================
+
+    /**
+     * Determine if a node has any children in the builder tree.
+     * @param {HTMLElement} node - The node element to check.
+     * @returns {boolean} - True if children exist.
+     */
+    function hasChild(node) {
+      const depth = +node.dataset.depth;
+      const nodes = Array.from(document.querySelectorAll('#root > .node'));
+      const idx = nodes.indexOf(node);
+      for (let i = idx + 1; i < nodes.length; i++) {
+        if (+nodes[i].dataset.depth > depth) return true;
+      }
+      return false;
+    }
+
+    /**
+     * Show or hide the value input field depending on whether node has children.
+     * @param {HTMLElement} node - The node element to update.
+     */
+    function updateVisibility(node) {
+      const valField = node.querySelector('.node-value');
+      valField.style.display = hasChild(node) ? 'none' : '';
+    }
+
+    /**
+     * Attempt to parse a text value as JSON, fallback to raw string.
+     * @param {string} val - The input text value.
+     * @returns {any} - Parsed JSON or original string.
+     */
+    function parseValue(val) {
+      try {
+        return JSON.parse(val);
+      } catch {
+        return val;
+      }
+    }
+
+    /**
+     * Recursively traverse the DOM nodes and reconstruct a nested JS object.
+     * @param {HTMLElement[]} nodes - Flat list of node elements.
+     * @param {number} startIndex - Current index in traversal.
+     * @param {number} depth - Current nesting depth.
+     * @returns {[object, number]} - Tuple of reconstructed object and next index.
+     */
+    function traverseRecursive(nodes, startIndex = 0, depth = 0) {
+      let i = startIndex;
+      const result = {};
+      while (i < nodes.length && +nodes[i].dataset.depth === depth) {
+        const node = nodes[i];
+        const key  = node.querySelector('.key-input').value.trim() || '';
+        let value;
+        if (i + 1 < nodes.length && +nodes[i + 1].dataset.depth > depth) {
+          const [childObj, nextIndex] = traverseRecursive(nodes, i + 1, depth + 1);
+          value = childObj;
+          i = nextIndex;
+        } else {
+          value = parseValue(node.querySelector('.node-value').value);
+          i++;
+        }
+        // Handle duplicate keys by converting to array
+        if (result.hasOwnProperty(key)) {
+          if (!Array.isArray(result[key])) result[key] = [result[key]];
+          result[key].push(value);
+        } else {
+          result[key] = value;
+        }
+      }
+      return [result, i];
+    }
+
+    /**
+     * Convert purely numeric-keyed objects into arrays.
+     * @param {any} obj - Input object/value to transform.
+     * @returns {any} - Transformed array or original object/value.
+     */
+    function convertArrays(obj) {
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const keys = Object.keys(obj);
+        // Check if all keys are numeric
+        if (keys.length && keys.every(k => /^\d+$/.test(k))) {
+          const arr = [];
+          keys.sort((a, b) => a - b).forEach(k => arr.push(convertArrays(obj[k])));
+          return arr;
+        } else {
+          const res = {};
+          keys.forEach(k => { res[k] = convertArrays(obj[k]); });
+          return res;
+        }
+      }
       return obj;
     }
 
+    /**
+     * Update the JSON output textarea based on current builder state.
+     */
+    function updateOutput() {
+      showLoader();
+      setTimeout(() => {
+        renderOutput();
+        hideLoader();
+        // sauvegarde systématique du JSON généré
+        const text = document.getElementById('output').value;
+        saveToDB('builderOutput', text)
+          .catch(err => console.error('IndexedDB save error (builderOutput):', err));
+      }, 50);
+    }
+    function quickUpdateOutput() {
+      renderOutput();
+      const text = document.getElementById('output').value;
+      saveToDB('builderOutput', text).catch(err => console.error(err));
+    }
+    /**
+     * Attach event listeners to a builder node for interactivity.
+     * @param {HTMLElement} node - The node element to attach to.
+     */
+    function attachEvents(node) {
+      const keyIn = node.querySelector('.key-input');
+      const valIn = node.querySelector('.node-value');
 
-    // Export JSON
-    document.getElementById('exportBtn').onclick = () => {
-      const json = traverse(document.getElementById('root'));
-      document.getElementById('output').value = JSON.stringify(json, null, 2);
-    };
-
-    // Copy JSON to clipboard
-    const copyBtn = document.getElementById('copyBtn');
-    copyBtn.addEventListener('click', () => {
-      const output = document.getElementById('output').value;
-      if (!output) return;
-      navigator.clipboard.writeText(output).then(() => {
-        copyBtn.textContent = '✅ Copied!';
-        setTimeout(() => copyBtn.textContent = 'Copy JSON', 2000);
+      // Add child object
+      node.querySelector('.add-child').addEventListener('click', () => {
+        const child = createNode('', '', +node.dataset.depth + 1);
+        root.insertBefore(child, node.nextSibling);
+        updateVisibility(node);
+        updateOutput();
+        updateControlStates(node);
+        updateTypeIndicator(node);
+        showSuccess('Child added');
       });
+
+      // Add array element
+      node.querySelector('.add-array').addEventListener('click', () => {
+        const depth = +node.dataset.depth;
+        const nodes = Array.from(document.querySelectorAll('#root > .node'));
+        let idx = nodes.indexOf(node) + 1;
+        let count = 0;
+        while (idx < nodes.length && +nodes[idx].dataset.depth > depth) {
+          if (+nodes[idx].dataset.depth === depth + 1) count++;
+          idx++;
+        }
+        const child = createNode(count.toString(), '', depth + 1, true);
+        root.insertBefore(child, node.nextSibling);
+        updateVisibility(node);
+        updateOutput();
+        updateControlStates(node);
+        updateTypeIndicator(node);
+        showSuccess('Array element added');
+      });
+
+      // Remove node
+      node.querySelector('.remove').addEventListener('click', () => {
+        const parent = findParent(node);
+        const depth = +node.dataset.depth;
+      
+        // Get all builder nodes currently in the DOM
+        const allNodes = Array.from(document.querySelectorAll('#root > .node'));
+        const index = allNodes.indexOf(node);
+        let i = index + 1;
+        const toMove = [];
+      
+        // Collect all descendant nodes (deeper than current depth)
+        while (i < allNodes.length && +allNodes[i].dataset.depth > depth) {
+          toMove.push(allNodes[i]);
+          i++;
+        }
+      
+        // Remove the current node from the DOM
+        node.remove();
+      
+        // Promote each child node one level up by decrementing its depth
+        toMove.forEach(child => {
+          const newDepth = +child.dataset.depth - 1;
+          child.dataset.depth = newDepth;
+          child.style.marginLeft = `${newDepth * 20}px`;
+        });
+      
+        // Reinsert the promoted child nodes at the correct position
+        const root = document.getElementById('root');
+        const refNode = allNodes[index + toMove.length + 1] || null;
+        toMove.forEach(child => {
+          root.insertBefore(child, refNode);
+        });
+      
+        // Update UI state and JSON output
+        if (parent) {
+          updateVisibility(parent);
+          updateControlStates(parent);
+          updateTypeIndicator(parent);
+        }
+      
+        updateOutput();
+        showSuccess('Node removed and its children promoted one level up');
+      });
+      
+      // Convert node
+      node.querySelector('.convert').addEventListener('click', () => {
+        const children = getDirectChildren(node);
+        if (!children.length) {
+          showError('Nothing to convert.');
+          return;
+        }
+    
+        const isArray = children.every(child => /^\d+$/.test(child.querySelector('.key-input').value));
+        const isObject = children.every(child => !/^\d+$/.test(child.querySelector('.key-input').value));
+    
+        if (!isArray && !isObject) {
+          showError('Cannot convert: mixed child keys.');
+          return;
+        }
+    
+        if (isObject) {
+          // Confirm overwriting keys
+          pendingConversion = { node, toArray: true };
+          document.getElementById('convertModal').classList.remove('hidden');
+        } else {
+          // Convert to object directly (array → object)
+          convertChildrenToObject(node);
+          showSuccess('Converted to object.');
+          updateOutput();
+          updateTypeIndicator(node);
+        }
     });
 
-    // Register service worker
+      // Re-render on input change
+      valIn.addEventListener('input', quickUpdateOutput);
+      keyIn.addEventListener('input', () => {
+        updateVisibility(node);
+        quickUpdateOutput();
+      });
+    }
+    
+    let pendingConversion = null;
+    
+    function getDirectChildren(parent) {
+      const depth = +parent.dataset.depth;
+      const nodes = Array.from(document.querySelectorAll('#root > .node'));
+      const idx = nodes.indexOf(parent);
+      const children = [];
+    
+      for (let i = idx + 1; i < nodes.length && +nodes[i].dataset.depth > depth; i++) {
+        if (+nodes[i].dataset.depth === depth + 1) children.push(nodes[i]);
+      }
+    
+      return children;
+    }
+    
+    function convertChildrenToArray(parent) {
+      const children = getDirectChildren(parent);
+      children.forEach((child, i) => {
+        const keyInput = child.querySelector('.key-input');
+        keyInput.value = i.toString();
+        keyInput.readOnly = true;
+        updateControlStates(child);
+      });
+      updateControlStates(parent);
+      updateTypeIndicator(parent);
+    }
+    
+    function convertChildrenToObject(parent) {
+      const children = getDirectChildren(parent);
+      children.forEach((child, i) => {
+        const keyInput = child.querySelector('.key-input');
+        keyInput.readOnly = false;
+        keyInput.value = `key${i + 1}`;
+        updateControlStates(child);
+      });
+      updateControlStates(parent);
+      updateTypeIndicator(parent);
+    }
+
+    /**
+     * Create a new builder node element.
+     * @param {string} key - Initial key text.
+     * @param {string} value - Initial value text.
+     * @param {number} depth - Nesting level for indentation.
+     * @returns {HTMLElement} - Constructed node element.
+     */
+    function createNode(key = '', value = '', depth = 0, readonlyKey = false) {
+      const node = document.createElement('div');
+      node.className = 'node';
+      node.dataset.depth = depth;
+      node.style.marginLeft = depth * 20 + 'px';
+
+      // Key/Value inputs container
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'flex';
+      wrapper.style.gap = '1rem';
+      wrapper.style.flexDirection = 'column';
+      wrapper.style.marginBottom = '0.5rem';
+
+      const keyInput = document.createElement('input');
+      keyInput.type = 'text';
+      keyInput.placeholder = 'Key';
+      keyInput.value = key;
+      keyInput.classList.add('key-input');
+      if (readonlyKey) keyInput.readOnly = true;
+
+      const valInput = document.createElement('textarea');
+      valInput.placeholder = 'Value';
+      valInput.value = value;
+      valInput.className = 'node-value';
+
+      wrapper.appendChild(keyInput);
+      wrapper.appendChild(valInput);
+
+      // Control buttons container
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+
+      const btnAddChild = document.createElement('button');
+      btnAddChild.textContent = 'Add Child Object';
+      btnAddChild.classList.add('add-child');
+
+      const btnAddArray = document.createElement('button');
+      btnAddArray.textContent = 'Add Array Element';
+      btnAddArray.classList.add('add-array');
+
+      const btnRemove = document.createElement('button');
+      btnRemove.textContent = 'Remove';
+      btnRemove.classList.add('remove');
+      if (depth === 0) btnRemove.style.display = 'none'; // Hide remove on root
+      
+      const btnConvert = document.createElement('button');
+      btnConvert.textContent = 'Convert';
+      btnConvert.classList.add('convert');
+      
+      const typeIndicator = document.createElement('span');
+      typeIndicator.className = 'type-indicator';
+      typeIndicator.textContent = ''; // empty by default
+ 
+      controls.append(btnAddChild, btnAddArray, btnRemove, btnConvert);
+      node.append(wrapper, controls, typeIndicator);
+      
+      attachEvents(node);
+      updateTypeIndicator(node);
+      updateControlStates(node);
+      updateVisibility(node);
+
+      return node;
+    }
+
+    /**
+     * Find the parent node of a given node in the builder tree.
+     * @param {HTMLElement} node - Child node to find parent for.
+     * @returns {HTMLElement|null} - Parent node or null if none.
+     */
+    function findParent(node) {
+      const depth = +node.dataset.depth;
+      const all = Array.from(document.querySelectorAll('#root > .node'));
+      let idx = all.indexOf(node) - 1;
+      while (idx >= 0) {
+        if (+all[idx].dataset.depth < depth) return all[idx];
+        idx--;
+      }
+      return null;
+    }
+
+    /**
+     * Recursively import a JavaScript object into the builder UI.
+     * @param {object} obj - The object to import.
+     * @param {number} depth - Current nesting depth.
+     * @param {HTMLElement|null} before - Optional insertion reference node.
+     */
+    function importObject(obj, depth = 0, before = null) {
+      if (Array.isArray(obj)) {
+        obj.forEach((item, index) => {
+          const node = createNode(
+            index.toString(),
+            (item && typeof item === 'object') ? '' : (typeof item === 'string' ? item : JSON.stringify(item)),
+            depth,
+            /* readonlyKey = */ true
+          );
+          if (before) root.insertBefore(node, before);
+          else         root.appendChild(node);
+    
+          // If the value is an object or a nested array, recurse
+          if (item && typeof item === 'object') {
+            importObject(item, depth + 1, node.nextSibling);
+            updateVisibility(node);
+            updateControlStates(node);
+            updateTypeIndicator(node);
+          }
+        });
+        return;
+      }
+      Object.entries(obj).forEach(([k, v]) => {
+        const node = createNode(
+          k,
+          (v && typeof v === 'object') ? '' : (typeof v === 'string' ? v : JSON.stringify(v)),
+          depth
+        );
+        if (before) root.insertBefore(node, before);
+        else root.appendChild(node);
+        
+        updateControlStates(node);
+
+        if (v && typeof v === 'object') {
+          importObject(v, depth + 1, node.nextSibling);
+          updateVisibility(node);
+          updateControlStates(node);
+          updateTypeIndicator(node);
+        }
+      });
+    }
+
+    /**
+     * Generate the final JSON and update the output textarea.
+     */
+    function renderOutput() {
+      const nodes = Array.from(document.querySelectorAll('#root > .node'));
+      if (!nodes.length) {
+        output.value = '{}';
+        return;
+      }
+      // Handle single empty node edge-case
+      if (nodes.length === 1) {
+        const only = nodes[0];
+        if (
+          !only.querySelector('.key-input').value.trim() &&
+          !hasChild(only) &&
+          !only.querySelector('.node-value').value.trim()
+        ) {
+          output.value = '{}';
+          return;
+        }
+      }
+      const [obj] = traverseRecursive(nodes, 0, 0);
+      const finalObj = objectOnlyMode ? obj : convertArrays(obj);
+      output.value = JSON.stringify(finalObj, null, 2);
+    }
+    
+    function getChildTypes(parentNode) {
+      const depth = +parentNode.dataset.depth;
+      const nodes = Array.from(document.querySelectorAll('#root > .node'));
+      const idx = nodes.indexOf(parentNode);
+      const children = [];
+    
+      for (let i = idx + 1; i < nodes.length && +nodes[i].dataset.depth > depth; i++) {
+        if (+nodes[i].dataset.depth === depth + 1) {
+          children.push(nodes[i]);
+        }
+      }
+    
+      const hasNormalChildren = children.some(child => !/^\d+$/.test(child.querySelector('.key-input').value));
+      const hasArrayElements = children.some(child => /^\d+$/.test(child.querySelector('.key-input').value));
+    
+      return { hasNormalChildren, hasArrayElements };
+    }
+    
+    function updateControlStates(node) {
+      const { hasNormalChildren, hasArrayElements } = getChildTypes(node);
+      const addChildBtn = node.querySelector('.add-child');
+      const addArrayBtn = node.querySelector('.add-array');
+    
+      if (hasArrayElements) {
+        addChildBtn.disabled = true;
+        addChildBtn.classList.add('disabled-btn');
+        addChildBtn.title = "Disabled: Remove all array elements before adding normal children.";
+      } else {
+        addChildBtn.disabled = false;
+        addChildBtn.classList.remove('disabled-btn');
+        addChildBtn.removeAttribute('title');
+      }
+    
+      if (hasNormalChildren) {
+        addArrayBtn.disabled = true;
+        addArrayBtn.classList.add('disabled-btn');
+        addArrayBtn.title = "Disabled: Remove all normal children before adding array elements.";
+      } else {
+        addArrayBtn.disabled = false;
+        addArrayBtn.classList.remove('disabled-btn');
+        addArrayBtn.removeAttribute('title');
+      }
+    }
+
+    function updateTypeIndicator(node) {
+      const indicator = node.querySelector('.type-indicator');
+      const children = getDirectChildren(node);
+    
+      if (!children.length) {
+        indicator.textContent = '';
+        return;
+      }
+    
+      const allNumeric = children.every(c => /^\d+$/.test(c.querySelector('.key-input').value));
+      const allNonNumeric = children.every(c => !/^\d+$/.test(c.querySelector('.key-input').value));
+    
+      if (allNumeric) {
+        indicator.textContent = 'Is array';
+      } else if (allNonNumeric) {
+        indicator.textContent = 'Is object';
+      } else {
+        indicator.textContent = 'Mixed content';
+      }
+    }
+
+    // ==========================================================================
+    // Builder Panel Event Handlers
+    // ==========================================================================
+    
+    // Save scroll position to replay on refresh
+    window.addEventListener('scroll', () => {
+      saveToDB('scrollY', window.scrollY);
+    });
+
+    // Import JSON text from output into builder UI
+    document.getElementById('importBtn').addEventListener('click', () => {
+      showLoader();
+      setTimeout(() => {
+        let data;
+        const txt = output.value.trim();
+        try {
+          data = txt ? JSON.parse(txt) : {};
+        } catch {
+          hideLoader();
+          showError('Invalid JSON');
+          return;
+        }
+        const root = document.getElementById('root');
+        root.innerHTML = '';
+        importObject(data);
+        if (!root.children.length) root.appendChild(createNode());
+        updateOutput();
+        hideLoader();
+        showSuccess('Import into Builder succeeded');
+      }, 50);
+    });
+    
+    // ==========================================================================
+    // Object-Only Mode Confirmation Logic
+    // ==========================================================================
+
+    const objectOnlyModal = document.getElementById('objectOnlyModal');
+    const objectOnlyYes   = document.getElementById('objectOnlyYes');
+    const objectOnlyNo    = document.getElementById('objectOnlyNo');
+
+    // When user confirms switching Object-Only mode
+    objectOnlyYes.addEventListener('click', () => {
+      // Actually toggle the mode and update UI
+      objectOnlyMode = !objectOnlyMode;                  
+      document.getElementById('objectOnlyToggle').checked = objectOnlyMode;
+      updateOutput();                                     
+      showSuccess('Object-Only Mode ' + (objectOnlyMode ? 'activated' : 'deactivated'));
+      // Hide the confirmation modal
+      objectOnlyModal.classList.add('hidden');           
+    });
+
+    // When user cancels switching Object-Only mode
+    objectOnlyNo.addEventListener('click', () => {
+      // Simply hide the modal; checkbox remains in its previous state
+      objectOnlyModal.classList.add('hidden');
+      document.getElementById('objectOnlyToggle').checked = objectOnlyMode; // restore previous state
+      showInfo('Object-Only Mode unchanged');
+    });
+
+    // Clicking outside the modal content also dismisses it
+    objectOnlyModal.addEventListener('click', (e) => {
+      if (e.target === objectOnlyModal) {
+        objectOnlyModal.classList.add('hidden');
+        showInfo('Object-Only Mode unchanged');
+      }
+    });
+    
+    // ==========================================================================
+    // Clear Builder Confirmation Logic
+    // ==========================================================================
+
+    // Show clear-confirmation modal
+    document.getElementById('clear-builder-btn').addEventListener('click', () => {
+      document.getElementById('clearModal').classList.remove('hidden');
+    });
+
+    // Modal: Cancel clear action
+    document.getElementById('cancel').addEventListener('click', () => {
+      document.getElementById('clearModal').classList.add('hidden');
+    });
+
+    // Modal: Clear only output
+    document.getElementById('no').addEventListener('click', () => {
+      document.getElementById('output').value = '';
+      showSuccess('Only output was cleared');
+      document.getElementById('clearModal').classList.add('hidden');
+    });
+
+    // Modal: Clear both output and workspace
+    document.getElementById('yes').addEventListener('click', () => {
+      document.getElementById('output').value = '';
+      showSuccess('Builder output cleared');
+      const root = document.getElementById('root');
+      root.innerHTML = '';
+      root.appendChild(createNode());
+      updateOutput();
+      showSuccess('Builder workspace cleared');
+      document.getElementById('clearModal').classList.add('hidden');
+    });
+
+    // Modal: click outside to dismiss
+    const clearModal = document.getElementById('clearModal');
+    clearModal.addEventListener('click', (e) => {
+      if (e.target === clearModal) {
+        clearModal.classList.add('hidden');
+      }
+    });
+
+    // File import into builder panel
+    document.getElementById('importFileBtn').addEventListener('click', () => {
+      document.getElementById('fileInput').click();
+    });
+    document.getElementById('fileInput').addEventListener('change', () => {
+      const file = document.getElementById('fileInput').files[0];
+      if (!file) return;
+      showLoader();
+      const reader = new FileReader();
+      reader.onload = () => {
+        document.getElementById('output').value = reader.result;
+        hideLoader();
+        showSuccess('File imported into Builder');
+      };
+      reader.readAsText(file);
+    });
+
+    // Copy JSON output to clipboard
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const text = document.getElementById('output').value;
+      if (!text) return;
+      navigator.clipboard.writeText(text)
+        .then(() => showSuccess('JSON copied to clipboard'))
+        .catch(() => showError('Copy failed'));
+    });
+    
+    // ==========================================================================
+    // Convert Node Confirmation Logic
+    // ==========================================================================
+    
+    document.getElementById('convertYes').addEventListener('click', () => {
+      if (pendingConversion && pendingConversion.toArray) {
+        convertChildrenToArray(pendingConversion.node);
+        showSuccess('Converted to array.');
+        updateOutput();
+      }
+      pendingConversion = null;
+      document.getElementById('convertModal').classList.add('hidden');
+    });
+    
+    document.getElementById('convertNo').addEventListener('click', () => {
+      pendingConversion = null;
+      document.getElementById('convertModal').classList.add('hidden');
+    });
+
+    // ==========================================================================
+    // Service Worker Registration (for PWA support)
+    // ==========================================================================
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js')
-        .catch(err => console.error('Service Worker registration failed:', err));
+        .catch(() => showInfo('Service Worker registration failed'));
     }
+  </script>
+  <script>
+    // ==========================================================================
+    // Wire Persistence into UI Lifecycle
+    // ==========================================================================
+
+    // Save Lint input on every change (or on validate)
+    document.getElementById('json-input').addEventListener('input', () => {
+      const text = document.getElementById('json-input').value;
+      saveToDB('lintInput', text).catch(err => console.error(err));
+    });
+
+    // Save Builder output whenever it updates
+    const originalUpdateOutput = updateOutput;
+    updateOutput = function() {
+      originalUpdateOutput();
+      const text = document.getElementById('output').value;
+      saveToDB('builderOutput', text).catch(err => console.error(err));
+    };
+
+    // Also save after manual copy/paste/file-import actions
+    ['pasteBuilderBtn', 'importFileBtn', 'importBtn', 'clear-builder-btn'].forEach(id => {
+      document.getElementById(id).addEventListener('click', () => {
+        setTimeout(() => { // wait for the UI to update
+          const text = document.getElementById('output').value;
+          saveToDB('builderOutput', text).catch(err => console.error(err));
+        }, 100);
+      });
+    });
   </script>
 </body>
 </html>
