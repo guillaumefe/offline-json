@@ -201,9 +201,8 @@
       keyInput.placeholder = 'Key';
       keyInput.type = 'text';
 
-      const valInput = document.createElement('input');
+      const valInput = document.createElement('textarea');
       valInput.placeholder = 'Value';
-      valInput.type = 'text';
 
       const controls = document.createElement('div');
       controls.className = 'controls';
@@ -246,15 +245,25 @@
 
     function traverse(container) {
       const obj = {};
+      // Iterate over each direct child node element
       [...container.children].forEach(node => {
-        const inputs = node.querySelectorAll('input[type="text"]');
-        const key = inputs[0].value.trim();
+        // Get the key input and the value textarea
+        const keyInput = node.querySelector('input[type="text"]');
+        const valueTextarea = node.querySelector('textarea');
+        const key = keyInput.value.trim();
+        // Skip nodes without a key
         if (!key) return;
-        const child = node.querySelector('.children');
-        obj[key] = child ? traverse(child) : inputs[1].value;
+    
+        // Check if this node has a children container
+        const childContainer = node.querySelector('.children');
+        // If there are child nodes, recurse; otherwise use the textarea value
+        obj[key] = childContainer
+          ? traverse(childContainer)
+          : valueTextarea.value;
       });
       return obj;
     }
+
 
     // Export JSON
     document.getElementById('exportBtn').onclick = () => {
