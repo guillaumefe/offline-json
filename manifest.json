@@ -1,6 +1,6 @@
 {
   "name": "JSONLint Offline PWA",
-  "short_name": "JSONLint",
+  "short_name": "JSONOff",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",
