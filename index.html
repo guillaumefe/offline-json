@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSONLint Offline PWA</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    textarea { width: 100%; height: 200px; font-family: monospace; font-size: 1rem; }
+    #result { margin-top: 1rem; white-space: pre-wrap; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>JSONLint Offline</h1>
+  <textarea id="json-input" placeholder="Collez votre JSON ici..."></textarea>
+  <br>
+  <button id="validate-btn">Valider</button>
+  <div id="result"></div>
+
+  <script>
+    // Validation logic entirely local
+    document.getElementById('validate-btn').addEventListener('click', () => {
+      const input = document.getElementById('json-input').value;
+      const resultEl = document.getElementById('result');
+      try {
+        const parsed = JSON.parse(input);
+        resultEl.textContent = '✅ JSON valide!\n' + JSON.stringify(parsed, null, 2);
+        resultEl.style.color = 'green';
+      } catch (err) {
+        resultEl.textContent = '❌ Erreur: ' + err.message;
+        resultEl.style.color = 'red';
+      }
+    });
+
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('Service Worker enregistré:', reg.scope))
+        .catch(err => console.error('Erreur SW:', err));
+    }
+  </script>
+</body>
+</html>
