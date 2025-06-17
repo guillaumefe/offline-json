@@ -1,44 +1,253 @@
+<!-- index.html -->
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JSONLint Offline PWA</title>
   <link rel="manifest" href="manifest.json">
   <style>
-    body { font-family: sans-serif; margin: 2rem; }
-    textarea { width: 100%; height: 200px; font-family: monospace; font-size: 1rem; }
-    #result { margin-top: 1rem; white-space: pre-wrap; }
-    button { padding: 0.5rem 1rem; font-size: 1rem; }
+    /* Mobile-first base styles */
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 1rem;
+      background: #f5f7fa;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    .tabs {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    /* Default (non-active) tabs */
+.tabs button {
+  background: #e1e4e8;      /* light gray */
+  color: #333;              /* dark text */
+  border: 1px solid #ddd;
+}
+
+/* Hover state */
+.tabs button:hover {
+  background: #007ACC;
+  color: #fff;
+  border-color: #007ACC;
+}
+
+/* Active tab */
+.tabs button.active {
+  background: #007ACC;      /* your blue */
+  color: #fff;
+  border-color: #007ACC;
+}
+    .tab-content {
+      display: none;
+      background: #fff;
+      padding: 1rem;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    .tab-content.active {
+      display: block;
+    }
+    textarea {
+      width: 100%;
+      min-height: 200px;
+      font-family: monospace;
+      font-size: 1rem;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    button {
+      background: #007ACC;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #005fa3;
+    }
+    #result {
+      margin-top: 1rem;
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+
+    /* Builder styles */
+    .node {
+      border: 1px solid #ddd;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+      border-radius: 4px;
+      background: #fdfdfd;
+    }
+    .children {
+      margin-left: 1rem;
+    }
+    .controls {
+      margin-top: 0.5rem;
+    }
+    .controls button {
+      background: #e1e4e8;
+      color: #333;
+      margin-right: 0.5rem;
+    }
+    input[type="text"] {
+      padding: 0.5rem;
+      margin-right: 0.5rem;
+      margin-bottom: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: calc(50% - 1rem);
+    }
+
+    /* Responsive tweaks */
+    @media (min-width: 600px) {
+      body {
+        margin: 2rem auto;
+        max-width: 800px;
+      }
+      .tabs button {
+        margin: 0 0.5rem;
+      }
+      input[type="text"] {
+        width: calc(33% - 1rem);
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>JSONLint Offline</h1>
-  <textarea id="json-input" placeholder="Collez votre JSON ici..."></textarea>
-  <br>
-  <button id="validate-btn">Valider</button>
-  <div id="result"></div>
+  <h1>JSONLint Offline PWA</h1>
+
+  <div class="tabs">
+    <button class="active" data-target="lint">Lint</button>
+    <button data-target="builder">Builder</button>
+  </div>
+
+  <!-- Lint Tab -->
+  <div id="lint" class="tab-content active">
+    <textarea id="json-input" placeholder="Paste your JSON here..."></textarea><br>
+    <button id="validate-btn">Validate</button>
+    <div id="result"></div>
+  </div>
+
+  <!-- Builder Tab -->
+  <div id="builder" class="tab-content">
+    <div id="root" class="node"></div>
+    <button id="exportBtn">Export JSON</button>
+    <textarea id="output" readonly placeholder="Generated JSON will appear here..." style="margin-top:1rem;"></textarea>
+  </div>
 
   <script>
-    // Validation logic entirely local
+    // Tab navigation
+    document.querySelectorAll('.tabs button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+      });
+    });
+
+    // JSONLint logic
     document.getElementById('validate-btn').addEventListener('click', () => {
       const input = document.getElementById('json-input').value;
       const resultEl = document.getElementById('result');
       try {
         const parsed = JSON.parse(input);
-        resultEl.textContent = '✅ JSON valide!\n' + JSON.stringify(parsed, null, 2);
+        resultEl.textContent = '✅ Valid JSON!\n' + JSON.stringify(parsed, null, 2);
         resultEl.style.color = 'green';
       } catch (err) {
-        resultEl.textContent = '❌ Erreur: ' + err.message;
+        resultEl.textContent = '❌ Error: ' + err.message;
         resultEl.style.color = 'red';
       }
     });
 
+    // JSON Builder logic
+    function createNode(container) {
+      const node = document.createElement('div');
+      node.className = 'node';
+
+      const keyInput = document.createElement('input');
+      keyInput.placeholder = 'Key';
+      keyInput.type = 'text';
+
+      const valInput = document.createElement('input');
+      valInput.placeholder = 'Value';
+      valInput.type = 'text';
+
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+
+      let childContainer = null;
+
+      const addChildBtn = document.createElement('button');
+      addChildBtn.textContent = 'Add Child';
+      addChildBtn.onclick = () => {
+        if (!childContainer) {
+          childContainer = document.createElement('div');
+          childContainer.className = 'children';
+          node.appendChild(childContainer);
+          valInput.style.display = 'none';
+          const observer = new MutationObserver(() => {
+            if (childContainer.children.length === 0) {
+              observer.disconnect();
+              childContainer.remove();
+              childContainer = null;
+              valInput.style.display = '';
+            }
+          });
+          observer.observe(childContainer, { childList: true });
+        }
+        createNode(childContainer);
+      };
+
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = 'Remove';
+      removeBtn.onclick = () => node.remove();
+
+      controls.append(addChildBtn, removeBtn);
+      node.append(keyInput, valInput, controls);
+      container.appendChild(node);
+    }
+
+    window.addEventListener('load', () => {
+      createNode(document.getElementById('root'));
+    });
+
+    function traverse(container) {
+      const obj = {};
+      [...container.children].forEach(node => {
+        const inputs = node.querySelectorAll('input[type="text"]');
+        const key = inputs[0].value.trim();
+        if (!key) return;
+        const child = node.querySelector('.children');
+        obj[key] = child ? traverse(child) : inputs[1].value;
+      });
+      return obj;
+    }
+
+    document.getElementById('exportBtn').onclick = () => {
+      const json = traverse(document.getElementById('root'));
+      document.getElementById('output').value = JSON.stringify(json, null, 2);
+    };
+
     // Register service worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js')
-        .then(reg => console.log('Service Worker enregistré:', reg.scope))
-        .catch(err => console.error('Erreur SW:', err));
+        .catch(err => console.error('Service Worker registration failed:', err));
     }
   </script>
 </body>
